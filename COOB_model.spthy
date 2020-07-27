@@ -1,0 +1,196 @@
+theory  COOB
+begin
+
+builtins: hashing, diffie-hellman, xor
+
+functions: remove_exp/2,add_exp/2,xorc/2,h1/1,h2/1
+
+equations:  remove_exp(add_exp(exp(g,x),y),exp(g,y))=exp(g,x),xorc(x,xorc(m,x)) = m,xorc(m,xorc(m,x)) = x,xorc(xorc(m,x),m) = x,xorc(xorc(m,x),x) = m
+
+
+
+rule setup_contextual_revelation:
+[ Fr(~rc)]
+--[OnlyOnce('setup_contextual_revelation'),Secret_rc(~rc)]->
+[ AgStA($I,~rc), AgStB($R,~rc),Out(~rc) ]
+
+
+
+// Message 1: A->B
+
+rule Mess_A_1:
+let gara=add_exp(exp('g',~a),~ra)
+    hash_A=h1(<$I,$R,~K_h,exp('g',~a),~ra>)
+in
+[Fr(~a),
+Fr(~ra),
+Fr(~K_h),
+AgStA($I,~rc)] 
+--[Distinct($I,~a,~ra),UniqueN(~ra),UniqueK(~a)]-> 
+[State_A_1($I,$R, ~a, ~ra,~rc,~K_h),
+Out(<gara,hash_A>)
+]
+
+
+
+
+
+// Message 2: B->A
+
+rule Mess_B_2:
+let gbrb=add_exp(exp('g',~b),~rb)
+    Vb=~rb XOR ~rc
+in
+[In(<gara,hash_A>),
+Fr(~b),
+Fr(~rb),
+AgStB($R,~rc)] 
+--[ Secret_rb(~rb),Distinct($R,~b,~rb),UniqueN(~rb),UniqueK(~b)]->
+[
+State_B_2($I,$R,~b,gara,hash_A,~rb,~rc),
+Out(<gbrb,Vb>)
+]
+
+
+// Message 3: A->B
+
+rule Mess_A_3: 
+let rb_hat=Vb XOR ~rc
+    gb=remove_exp(gbrb,exp('g',rb_hat))
+    rg=xorc(xorc(rb_hat,~ra),gb)
+   
+in
+[In(<gbrb,Vb>),
+State_A_1($I,$R, ~a, ~ra,~rc,~K_h)]
+--[Secret_ra(~ra)]->
+[State_A_2($I,$R,gb, ~a, ~ra,rb_hat,~rc,~K_h),!Auth($I,$R,rg),Out(<$I,$R,rg>)]
+
+
+
+// Secure Channel rules 
+rule ChanOut_S:
+[ Out_S($A,$B,x) ]
+--[ ChanOut_S($A,$B,x) ]->
+[ !Sec($A,$B,x) ]
+rule ChanIn_S:
+[ !Sec($A,$B,x) ]
+--[ ChanIn_S($A,$B,x) ]->
+[ In_S($A,$B,x) ]
+
+
+// Message 4: B->A
+
+rule Mess_B_4:
+let  ra_hat=xorc(xorc(rg,exp('g',~b)),~rb)
+    
+     ga=remove_exp(gara,exp('g',ra_hat))
+     K_B= ga^~b
+     hk=h2(<$I,$R,K_B,ga,exp('g',~b)>)
+in
+[ !Auth($I,$R,rg),
+State_B_2($I,$R,~b,gara,hash_A,~rb,~rc)]
+--[ ]->
+[ Out(hk),
+State_B_3($I,$R,~b,ga,hash_A,~rb,ra_hat,~rc,K_B)  ]
+
+// Message 5: A->B 
+
+rule Mess_A_5: 
+let K_A=gb^~a
+in
+[In(hk),
+State_A_2($I,$R,gb, ~a, ~ra,rb_hat,~rc,~K_h)]
+--[Eq(hk,h2(<$I,$R,K_A,exp('g',~a),gb>)),A_confirm($I,$R,K_A) ]->
+[ Out(~K_h)]
+
+// Message 6: B->A 
+rule Mess_B_conf: 
+[In(Kh),
+State_B_3($I,$R,~b,ga,hash_A,~rb,ra_hat,~rc,K_B) ]
+--[Eq(hash_A,h1(<$I,$R,Kh,ga,ra_hat>)),B_confirm($I,$R,K_B),Secret_Kb(K_B)]->
+[Out_S($I,$R,'Accept')]
+
+
+rule Mess_A_conf: 
+let K_A=gb^~a
+in
+[In_S($I,$R,Signal),
+State_A_2($I,$R,gb, ~a, ~ra,rb_hat,~rc,~K_h)]
+--[Eq(Signal,'Accept'),A_confirm_rcv($I,$R,K_A),Secret_Ka(K_A) ]->
+[]
+
+
+
+
+
+
+
+
+//Conditions
+
+restriction Unique_Initialisation:
+"All x #i #j. OnlyOnce(x)@#i & OnlyOnce(x)@#j ==> #i = #j"
+
+restriction Hash_Equality:
+"All x y #i. Eq(x,y) @i ==> x = y"
+
+restriction Distinct_Parameters:
+"All I x y #i. Distinct(I,x,y) @i ==> not(x = y)"
+
+restriction Unique_Nonces:
+"All x #i #j. UniqueN(x) @#i & UniqueN(x) @#j ==> #i = #j"
+
+restriction Unique_Keys:
+"All  x #i #j. UniqueK(x) @#i & UniqueK(x) @#j ==> #i = #j"
+
+
+//Queries
+
+lemma secrecy_Ka:
+"All x #i.
+Secret_Ka(x) @i ==>
+not (Ex #j. K(x)@j )"
+
+
+lemma secrecy_Kb:
+"All x #i.
+Secret_Kb(x) @i ==>
+not (Ex #j. K(x)@j)"
+
+lemma secrecy_rc:
+"All x #i.
+Secret_rc(x) @i ==>
+not (Ex #j. K(x)@j)"
+
+lemma secrecy_ra:
+"All x #i.
+Secret_ra(x) @i ==>
+not (Ex #j. K(x)@j)"
+
+lemma secrecy_rb:
+"All x #i.
+Secret_rb(x) @i ==>
+not (Ex #j. K(x)@j)"
+
+
+
+lemma Injective_Agreement_Alice_to_Bob:
+
+" All I R K #i.
+ A_confirm_rcv(I,R,K) @i
+==>
+(Ex #j. B_confirm(I,R,K) @j & j<i & not(Ex A2 B2 #i2. A_confirm_rcv(A2,B2,K) @i2
+& not(#i2 = #i))) 
+"
+
+lemma Injective_Agreement_Bob_to_Alice:
+
+" All I R K #i.
+B_confirm(I,R,K) @i
+==>
+(Ex #j. A_confirm(I,R,K) @j & j<i & not(Ex A2 B2 #i2. B_confirm(A2,B2,K) @i2
+& not(#i2 = #i))) 
+"
+
+end
+
